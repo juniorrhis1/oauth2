@@ -5,6 +5,7 @@
 package internal
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -114,6 +115,7 @@ const (
 	AuthStyleUnknown  AuthStyle = 0
 	AuthStyleInParams AuthStyle = 1
 	AuthStyleInHeader AuthStyle = 2
+	AuthStyleInBody   AuthStyle = 3
 )
 
 // LazyAuthStyleCache is a backwards compatibility compromise to let Configs
@@ -190,11 +192,35 @@ func newTokenRequest(tokenURL, clientID, clientSecret string, v url.Values, auth
 			v.Set("client_secret", clientSecret)
 		}
 	}
-	req, err := http.NewRequest("POST", tokenURL, strings.NewReader(v.Encode()))
-	if err != nil {
-		return nil, err
+
+	var req *http.Request
+	if authStyle != AuthStyleInBody {
+		req, err := http.NewRequest("POST", tokenURL, strings.NewReader(v.Encode()))
+		if err != nil {
+			return nil, nil
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else {
+		bodyMap := map[string]string{
+			"client_id":     clientID,
+			"client_secret": clientSecret,
+		}
+		for key, value := range v {
+			bodyMap[key] = value[0]
+		}
+
+		bodyBytes, err := json.Marshal(bodyMap)
+		if err != nil {
+			return nil, err // Return the error instead of nil
+		}
+
+		req, err = http.NewRequest("POST", tokenURL, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			return nil, err // Return the error instead of nil
+		}
+		req.Header.Set("Content-Type", "application/json")
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
 	if authStyle == AuthStyleInHeader {
 		req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(clientSecret))
 	}

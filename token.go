@@ -70,10 +70,7 @@ func (t *Token) Type() string {
 	if strings.EqualFold(t.TokenType, "basic") {
 		return "Basic"
 	}
-	if t.TokenType != "" {
-		return t.TokenType
-	}
-	return "Bearer"
+	return t.TokenType
 }
 
 // SetAuthHeader sets the Authorization header to r using the access
@@ -82,7 +79,12 @@ func (t *Token) Type() string {
 // This method is unnecessary when using Transport or an HTTP Client
 // returned by this package.
 func (t *Token) SetAuthHeader(r *http.Request) {
-	r.Header.Set("Authorization", t.Type()+" "+t.AccessToken)
+	if r.Header.Get("AuthorizationTokenType") == "" {
+		r.Header.Set("Authorization", t.AccessToken)
+		return
+	}
+
+	r.Header.Set("Authorization", r.Header.Get("AuthorizationTokenType")+" "+t.AccessToken)
 }
 
 // WithExtra returns a new Token that's a clone of t, but using the
