@@ -65,7 +65,8 @@ func TestTokenTypeMethod(t *testing.T) {
 		want string
 	}{
 		{name: "bearer-mixed_case", tok: &Token{TokenType: "beAREr"}, want: "Bearer"},
-		{name: "default-bearer", tok: &Token{}, want: "Bearer"},
+		{name: "default", tok: &Token{}, want: ""},
+		{name: "bearer", tok: &Token{TokenType: "bearer"}, want: "Bearer"},
 		{name: "basic", tok: &Token{TokenType: "basic"}, want: "Basic"},
 		{name: "basic-capitalized", tok: &Token{TokenType: "Basic"}, want: "Basic"},
 		{name: "mac", tok: &Token{TokenType: "mac"}, want: "MAC"},

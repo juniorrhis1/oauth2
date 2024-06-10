@@ -355,7 +355,7 @@ func TestImpersonation(t *testing.T) {
 	for _, tt := range impersonationTests {
 		t.Run(tt.name, func(t *testing.T) {
 			testImpersonateConfig := tt.config
-			impersonateServer := createImpersonationServer("/", "Bearer Sample.Access.Token", tt.expectedImpersonationBody, baseImpersonateCredsRespBody, t)
+			impersonateServer := createImpersonationServer("/", "Sample.Access.Token", tt.expectedImpersonationBody, baseImpersonateCredsRespBody, t)
 			defer impersonateServer.Close()
 			testImpersonateConfig.ServiceAccountImpersonationURL = impersonateServer.URL
 
