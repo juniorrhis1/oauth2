@@ -97,13 +97,38 @@ func TestTransportTokenSource(t *testing.T) {
 		Source: ts,
 	}
 	server := newMockServer(func(w http.ResponseWriter, r *http.Request) {
-		if got, want := r.Header.Get("Authorization"), "Bearer abc"; got != want {
+		if got, want := r.Header.Get("Authorization"), "abc"; got != want {
 			t.Errorf("Authorization header = %q; want %q", got, want)
 		}
 	})
 	defer server.Close()
 	client := &http.Client{Transport: tr}
 	res, err := client.Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+}
+
+func TestTransportTokenSourceWithAuthorizationTokenType(t *testing.T) {
+	ts := &tokenSource{
+		token: &Token{
+			AccessToken: "abc",
+		},
+	}
+	tr := &Transport{
+		Source: ts,
+	}
+	server := newMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.Header.Get("Authorization"), "Bearer abc"; got != want {
+			t.Errorf("Authorization header = %q; want %q", got, want)
+		}
+	})
+	defer server.Close()
+	client := &http.Client{Transport: tr}
+	req, err := http.NewRequest("GET", server.URL, nil)
+	req.Header.Add("AuthorizationTokenType", "Bearer")
+	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,9 +143,9 @@ func TestTransportTokenSourceTypes(t *testing.T) {
 		val  string
 		want string
 	}{
-		{key: "bearer", val: val, want: "Bearer abc"},
-		{key: "mac", val: val, want: "MAC abc"},
-		{key: "basic", val: val, want: "Basic abc"},
+		{key: "bearer", val: val, want: "abc"},
+		{key: "mac", val: val, want: "abc"},
+		{key: "basic", val: val, want: "abc"},
 	}
 	for _, tc := range tests {
 		ts := &tokenSource{

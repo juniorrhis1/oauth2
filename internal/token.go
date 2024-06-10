@@ -194,8 +194,9 @@ func newTokenRequest(tokenURL, clientID, clientSecret string, v url.Values, auth
 	}
 
 	var req *http.Request
+	var err error
 	if authStyle != AuthStyleInBody {
-		req, err := http.NewRequest("POST", tokenURL, strings.NewReader(v.Encode()))
+		req, err = http.NewRequest("POST", tokenURL, strings.NewReader(v.Encode()))
 		if err != nil {
 			return nil, nil
 		}

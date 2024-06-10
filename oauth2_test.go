@@ -576,6 +576,30 @@ func TestConfigClientWithToken(t *testing.T) {
 		AccessToken: "abc123",
 	}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.Header.Get("Authorization"), tok.AccessToken; got != want {
+			t.Errorf("Authorization header = %q; want %q", got, want)
+		}
+		return
+	}))
+	defer ts.Close()
+	conf := newConf(ts.URL)
+
+	c := conf.Client(context.Background(), tok)
+	req, err := http.NewRequest("GET", ts.URL, nil)
+	if err != nil {
+		t.Error(err)
+	}
+	_, err = c.Do(req)
+	if err != nil {
+		t.Error(err)
+	}
+}
+
+func TestConfigClientWithTokenAndAuthorizationTokenType(t *testing.T) {
+	tok := &Token{
+		AccessToken: "abc123",
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got, want := r.Header.Get("Authorization"), fmt.Sprintf("Bearer %s", tok.AccessToken); got != want {
 			t.Errorf("Authorization header = %q; want %q", got, want)
 		}
@@ -586,6 +610,7 @@ func TestConfigClientWithToken(t *testing.T) {
 
 	c := conf.Client(context.Background(), tok)
 	req, err := http.NewRequest("GET", ts.URL, nil)
+	req.Header.Add("AuthorizationTokenType", "Bearer")
 	if err != nil {
 		t.Error(err)
 	}
