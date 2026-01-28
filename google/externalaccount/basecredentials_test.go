@@ -6,8 +6,9 @@ package externalaccount
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -76,7 +77,7 @@ func run(t *testing.T, config *Config, tets *testExchangeTokenServer) (*oauth2.T
 		if got, want := headerMetrics, tets.metricsHeader; got != want {
 			t.Errorf("got %v but want %v", got, want)
 		}
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("Failed reading request body: %s.", err)
 		}
@@ -101,15 +102,18 @@ func run(t *testing.T, config *Config, tets *testExchangeTokenServer) (*oauth2.T
 	return ts.Token()
 }
 
-func validateToken(t *testing.T, tok *oauth2.Token) {
-	if got, want := tok.AccessToken, correctAT; got != want {
+func validateToken(t *testing.T, tok *oauth2.Token, expectToken *oauth2.Token) {
+	if expectToken == nil {
+		return
+	}
+	if got, want := tok.AccessToken, expectToken.AccessToken; got != want {
 		t.Errorf("Unexpected access token: got %v, but wanted %v", got, want)
 	}
-	if got, want := tok.TokenType, "Bearer"; got != want {
+	if got, want := tok.TokenType, expectToken.TokenType; got != want {
 		t.Errorf("Unexpected TokenType: got %v, but wanted %v", got, want)
 	}
 
-	if got, want := tok.Expiry, testNow().Add(time.Duration(3600)*time.Second); got != want {
+	if got, want := tok.Expiry, expectToken.Expiry; got != want {
 		t.Errorf("Unexpected Expiry: got %v, but wanted %v", got, want)
 	}
 }
@@ -127,7 +131,7 @@ func createImpersonationServer(urlWanted, authWanted, bodyWanted, response strin
 		if got, want := headerContentType, "application/json"; got != want {
 			t.Errorf("got %v but want %v", got, want)
 		}
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("Failed reading request body: %v.", err)
 		}
@@ -156,7 +160,7 @@ func createTargetServer(metricsHeaderWanted string, t *testing.T) *httptest.Serv
 		if got, want := headerMetrics, metricsHeaderWanted; got != want {
 			t.Errorf("got %v but want %v", got, want)
 		}
-		body, err := ioutil.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			t.Fatalf("Failed reading request body: %v.", err)
 		}
@@ -173,30 +177,91 @@ func getExpectedMetricsHeader(source string, saImpersonation bool, configLifetim
 }
 
 func TestToken(t *testing.T) {
-	config := Config{
-		Audience:         "32555940559.apps.googleusercontent.com",
-		SubjectTokenType: "urn:ietf:params:oauth:token-type:id_token",
-		ClientSecret:     "notsosecret",
-		ClientID:         "rbrgnognrhongo3bi4gb9ghg9g",
-		CredentialSource: &testBaseCredSource,
-		Scopes:           []string{"https://www.googleapis.com/auth/devstorage.full_control"},
+	type MockSTSResponse struct {
+		AccessToken     string `json:"access_token"`
+		IssuedTokenType string `json:"issued_token_type"`
+		TokenType       string `json:"token_type"`
+		ExpiresIn       int32  `json:"expires_in,omitempty"`
+		Scope           string `json:"scopre,omitenpty"`
 	}
 
-	server := testExchangeTokenServer{
-		url:           "/",
-		authorization: "Basic cmJyZ25vZ25yaG9uZ28zYmk0Z2I5Z2hnOWc6bm90c29zZWNyZXQ=",
-		contentType:   "application/x-www-form-urlencoded",
-		metricsHeader: getExpectedMetricsHeader("file", false, false),
-		body:          baseCredsRequestBody,
-		response:      baseCredsResponseBody,
+	testCases := []struct {
+		name           string
+		responseBody   MockSTSResponse
+		expectToken    *oauth2.Token
+		expectErrorMsg string
+	}{
+		{
+			name: "happy case",
+			responseBody: MockSTSResponse{
+				AccessToken:     correctAT,
+				IssuedTokenType: "urn:ietf:params:oauth:token-type:access_token",
+				TokenType:       "Bearer",
+				ExpiresIn:       3600,
+				Scope:           "https://www.googleapis.com/auth/cloud-platform",
+			},
+			expectToken: &oauth2.Token{
+				AccessToken: correctAT,
+				TokenType:   "Bearer",
+				Expiry:      testNow().Add(time.Duration(3600) * time.Second),
+			},
+		},
+		{
+			name: "no expiry time on token",
+			responseBody: MockSTSResponse{
+				AccessToken:     correctAT,
+				IssuedTokenType: "urn:ietf:params:oauth:token-type:access_token",
+				TokenType:       "Bearer",
+				Scope:           "https://www.googleapis.com/auth/cloud-platform",
+			},
+			expectToken:    nil,
+			expectErrorMsg: "oauth2/google/externalaccount: got invalid expiry from security token service",
+		},
+		{
+			name: "negative expiry time",
+			responseBody: MockSTSResponse{
+				AccessToken:     correctAT,
+				IssuedTokenType: "urn:ietf:params:oauth:token-type:access_token",
+				TokenType:       "Bearer",
+				ExpiresIn:       -1,
+				Scope:           "https://www.googleapis.com/auth/cloud-platform",
+			},
+			expectToken:    nil,
+			expectErrorMsg: "oauth2/google/externalaccount: got invalid expiry from security token service",
+		},
 	}
 
-	tok, err := run(t, &config, &server)
+	for _, testCase := range testCases {
+		config := Config{
+			Audience:         "32555940559.apps.googleusercontent.com",
+			SubjectTokenType: "urn:ietf:params:oauth:token-type:id_token",
+			ClientSecret:     "notsosecret",
+			ClientID:         "rbrgnognrhongo3bi4gb9ghg9g",
+			CredentialSource: &testBaseCredSource,
+			Scopes:           []string{"https://www.googleapis.com/auth/devstorage.full_control"},
+		}
 
-	if err != nil {
-		t.Fatalf("Unexpected error: %e", err)
+		responseBody, err := json.Marshal(testCase.responseBody)
+		if err != nil {
+			t.Errorf("Invalid response received.")
+		}
+
+		server := testExchangeTokenServer{
+			url:           "/",
+			authorization: "Basic cmJyZ25vZ25yaG9uZ28zYmk0Z2I5Z2hnOWc6bm90c29zZWNyZXQ=",
+			contentType:   "application/x-www-form-urlencoded",
+			metricsHeader: getExpectedMetricsHeader("file", false, false),
+			body:          baseCredsRequestBody,
+			response:      string(responseBody),
+		}
+
+		tok, err := run(t, &config, &server)
+
+		if err != nil && err.Error() != testCase.expectErrorMsg {
+			t.Errorf("Error not as expected: got = %v, and want = %v", err, testCase.expectErrorMsg)
+		}
+		validateToken(t, tok, testCase.expectToken)
 	}
-	validateToken(t, tok)
 }
 
 func TestWorkforcePoolTokenWithClientID(t *testing.T) {
@@ -224,7 +289,12 @@ func TestWorkforcePoolTokenWithClientID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %e", err)
 	}
-	validateToken(t, tok)
+	expectToken := oauth2.Token{
+		AccessToken: correctAT,
+		TokenType:   "Bearer",
+		Expiry:      testNow().Add(time.Duration(3600) * time.Second),
+	}
+	validateToken(t, tok, &expectToken)
 }
 
 func TestWorkforcePoolTokenWithoutClientID(t *testing.T) {
@@ -251,7 +321,12 @@ func TestWorkforcePoolTokenWithoutClientID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Unexpected error: %e", err)
 	}
-	validateToken(t, tok)
+	expectToken := oauth2.Token{
+		AccessToken: correctAT,
+		TokenType:   "Bearer",
+		Expiry:      testNow().Add(time.Duration(3600) * time.Second),
+	}
+	validateToken(t, tok, &expectToken)
 }
 
 func TestNonworkforceWithWorkforcePoolUserProject(t *testing.T) {
@@ -272,12 +347,12 @@ func TestNonworkforceWithWorkforcePoolUserProject(t *testing.T) {
 		t.Fatalf("Expected error but found none")
 	}
 	if got, want := err.Error(), "oauth2/google/externalaccount: Workforce pool user project should not be set for non-workforce pool credentials"; got != want {
-		t.Errorf("Incorrect error received.\nExpected: %s\nRecieved: %s", want, got)
+		t.Errorf("Incorrect error received.\nExpected: %s\nReceived: %s", want, got)
 	}
 }
 
 func TestWorkforcePoolCreation(t *testing.T) {
-	var audienceValidatyTests = []struct {
+	var audienceValidityTests = []struct {
 		audience      string
 		expectSuccess bool
 	}{
@@ -296,7 +371,7 @@ func TestWorkforcePoolCreation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	for _, tt := range audienceValidatyTests {
+	for _, tt := range audienceValidityTests {
 		t.Run(" "+tt.audience, func(t *testing.T) { // We prepend a space ahead of the test input when outputting for sake of readability.
 			config := testConfig
 			config.TokenURL = "https://sts.googleapis.com" // Setting the most basic acceptable tokenURL

@@ -9,12 +9,6 @@ import (
 	"time"
 )
 
-type tokenSource struct{ token *Token }
-
-func (t *tokenSource) Token() (*Token, error) {
-	return t.token, nil
-}
-
 func TestTransportNilTokenSource(t *testing.T) {
 	tr := &Transport{}
 	server := newMockServer(func(w http.ResponseWriter, r *http.Request) {})
@@ -88,13 +82,10 @@ func TestTransportCloseRequestBodySuccess(t *testing.T) {
 }
 
 func TestTransportTokenSource(t *testing.T) {
-	ts := &tokenSource{
-		token: &Token{
-			AccessToken: "abc",
-		},
-	}
 	tr := &Transport{
-		Source: ts,
+		Source: StaticTokenSource(&Token{
+			AccessToken: "abc",
+		}),
 	}
 	server := newMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if got, want := r.Header.Get("Authorization"), "abc"; got != want {
@@ -148,14 +139,11 @@ func TestTransportTokenSourceTypes(t *testing.T) {
 		{key: "basic", val: val, want: "abc"},
 	}
 	for _, tc := range tests {
-		ts := &tokenSource{
-			token: &Token{
+		tr := &Transport{
+			Source: StaticTokenSource(&Token{
 				AccessToken: tc.val,
 				TokenType:   tc.key,
-			},
-		}
-		tr := &Transport{
-			Source: ts,
+			}),
 		}
 		server := newMockServer(func(w http.ResponseWriter, r *http.Request) {
 			if got, want := r.Header.Get("Authorization"), tc.want; got != want {
