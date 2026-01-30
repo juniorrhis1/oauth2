@@ -101,14 +101,35 @@ func TestTransportTokenSource(t *testing.T) {
 	res.Body.Close()
 }
 
-func TestTransportTokenSourceWithAuthorizationTokenType(t *testing.T) {
-	ts := &tokenSource{
-		token: &Token{
-			AccessToken: "abc",
-		},
-	}
+func TestTransportTokenSourceWithOmitTokenTypeNonEmpty(t *testing.T) {
 	tr := &Transport{
-		Source: ts,
+		Source: StaticTokenSource(&Token{
+			AccessToken: "abc",
+			TokenType:   "Bearer",
+		}),
+	}
+	server := newMockServer(func(w http.ResponseWriter, r *http.Request) {
+		if got, want := r.Header.Get("Authorization"), "abc"; got != want {
+			t.Errorf("Authorization header = %q; want %q", got, want)
+		}
+	})
+	defer server.Close()
+	client := &http.Client{Transport: tr}
+	req, err := http.NewRequest("GET", server.URL, nil)
+	req.Header.Add("OmitTokenType", "true")
+	res, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+}
+
+func TestTransportTokenSourceWithOmitTokenTypeEmpty(t *testing.T) {
+	tr := &Transport{
+		Source: StaticTokenSource(&Token{
+			AccessToken: "abc",
+			TokenType:   "Bearer",
+		}),
 	}
 	server := newMockServer(func(w http.ResponseWriter, r *http.Request) {
 		if got, want := r.Header.Get("Authorization"), "Bearer abc"; got != want {
@@ -118,7 +139,7 @@ func TestTransportTokenSourceWithAuthorizationTokenType(t *testing.T) {
 	defer server.Close()
 	client := &http.Client{Transport: tr}
 	req, err := http.NewRequest("GET", server.URL, nil)
-	req.Header.Add("AuthorizationTokenType", "Bearer")
+	req.Header.Add("OmitTokenType", "")
 	res, err := client.Do(req)
 	if err != nil {
 		t.Fatal(err)
